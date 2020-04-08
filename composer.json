@@ -1,0 +1,27 @@
+{
+  "name": "xyqweb/queue",
+  "description": "php queue",
+  "type": "library",
+  "require": {
+    "php": ">7.1.0",
+    "ext-libsodium": "*",
+    "ext-mcrypt": "*",
+    "ext-gmp": "*",
+    "ext-json": "*",
+    "enqueue/amqp-lib": "0.10.1",
+    "php-amqplib/php-amqplib": "2.11.1"
+  },
+  "license": "BSD 3-Clause",
+  "authors": [
+    {
+      "name": "xyq",
+      "email": "xyq@weiyian.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "xyqWeb\\queue\\": "src"
+    }
+  },
+  "minimum-stability": "stable"
+}
