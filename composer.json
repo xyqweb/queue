@@ -4,8 +4,6 @@
   "type": "library",
   "require": {
     "php": ">7.1.0",
-    "ext-mcrypt": "*",
-    "ext-json": "*",
     "enqueue/amqp-lib": "0.10.1",
     "php-amqplib/php-amqplib": "2.11.1"
   },
