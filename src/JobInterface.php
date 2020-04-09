@@ -10,10 +10,10 @@ declare(strict_types = 1);
 namespace xyqWeb\queue;
 
 
-abstract class JobInterface extends QueueObject
+interface JobInterface
 {
     /**
      * @param Queue $queue which pushed and is handling the job
      */
-    abstract public function execute($queue);
+    public function execute($queue);
 }
