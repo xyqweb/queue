@@ -13,11 +13,14 @@ use Enqueue\AmqpLib\AmqpConnectionFactory as AmqpLibConnectionFactory;
 use Enqueue\AmqpLib\AmqpContext;
 use Enqueue\AmqpTools\DelayStrategyAware;
 use Enqueue\AmqpTools\RabbitMqDlxDelayStrategy;
+use Interop\Amqp\AmqpConsumer;
+use Interop\Amqp\AmqpMessage;
 use Interop\Amqp\AmqpQueue;
 use Interop\Amqp\AmqpTopic;
 use Interop\Amqp\Impl\AmqpBind;
-use PhpAmqpLib\Message\AMQPMessage;
 use xyqWeb\queue\JobInterface;
+use xyqWeb\queue\library\Message;
+use xyqWeb\queue\library\Serializer;
 
 class RabbitMq extends QueueStrategy
 {
@@ -124,6 +127,12 @@ class RabbitMq extends QueueStrategy
      */
     public $maxPriority = 10;
     /**
+     * retry times defaul max 3.
+     *
+     * @var int
+     */
+    public $maxFailNum = 3;
+    /**
      * 路由key
      * @var string
      */
@@ -142,6 +151,10 @@ class RabbitMq extends QueueStrategy
      * @var object 日志组件
      */
     protected $logDriver;
+    /**
+     * @var object 日志组件
+     */
+    protected $serialize;
 
     /**
      * RabbitMq constructor.
@@ -157,6 +170,7 @@ class RabbitMq extends QueueStrategy
             $this->logDriver = $config['logDriver'];
         }
         $this->config = $config;
+        $this->serialize = new Serializer();
     }
 
     /**
@@ -232,6 +246,43 @@ class RabbitMq extends QueueStrategy
     }
 
     /**
+     * 监听队列
+     *
+     * @author xyq
+     * @throws \Interop\Queue\Exception\Exception
+     */
+    public function listen()
+    {
+        $this->initParams();
+        $this->open();
+        $this->setupBroker();
+
+        $queue = $this->context->createQueue($this->queueName);
+        $consumer = $this->context->createConsumer($queue);
+        $consumerFun = $this->context->createSubscriptionConsumer();
+        Message::$serialize = $this->serialize;
+        Message::$logDriver = $this->logDriver;
+        $consumerFun->subscribe($consumer, function (AmqpMessage $message, AmqpConsumer $consumer) {
+            $ttr = $message->getProperty(self::TTR);
+            $attempt = $message->getProperty(self::ATTEMPT, 1);
+            $reconsumeTime = $this->reconsumeTime;
+            $messageId = $message->getMessageId();
+            if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
+                $this->logDriver->write('queue/queue_consumer.log', ' messageId:' . $message->getMessageId() . ' payload:' . $message->getBody());
+            }
+            if (Message::handleMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime)) {
+                $consumer->acknowledge($message);
+            } else {
+                $consumer->acknowledge($message);
+                Message::pushNewMessage($messageId, $message, $ttr, $attempt, $reconsumeTime);
+            }
+            return true;
+        });
+
+        $consumerFun->consume();
+    }
+
+    /**
      * 延迟时间
      *
      * @author xyq
@@ -259,55 +310,33 @@ class RabbitMq extends QueueStrategy
     }
 
     /**
-     * @param mixed $data
-     * @return array|mixed
-     * @throws ConfigException
-     */
-    protected function toArray($data)
-    {
-        if (is_object($data)) {
-            $result = [$this->classKey => get_class($data)];
-            foreach (get_object_vars($data) as $property => $value) {
-                if ($property === $this->classKey) {
-                    throw new ConfigException("Object cannot contain $this->classKey property.");
-                }
-                $result[$property] = $this->toArray($value);
-            }
-
-            return $result;
-        }
-
-        if (is_array($data)) {
-            $result = [];
-            foreach ($data as $key => $value) {
-                if ($key === $this->classKey) {
-                    throw new ConfigException("Array cannot contain $this->classKey key.");
-                }
-                $result[$key] = $this->toArray($value);
-            }
-
-            return $result;
-        }
-
-        return $data;
-    }
-
-    /**
      * 推送队列
      *
      * @author xyq
      * @param $payload
+     * @param null $ttr
+     * @param null $delay
      * @param null $priority
+     * @param null $attempt
      * @return string|null
      * @throws \Exception
      */
-    public function push($payload, $priority = null)
+    public function push($payload, $ttr = null, $delay = null, $priority = null, $attempt = null)
     {
+        $this->initParams();
         try {
             if (!($payload instanceof JobInterface)) {
                 throw new ConfigException("Job must be instance of JobInterface.");
             }
-            $payload = json_encode($this->toArray($payload));
+            $payload = $this->serialize->serialize($payload);
+            if (is_int($attempt)) {
+                if ($attempt >= $this->maxFailNum) {
+                    $this->queueName = $this->errorQueueName;
+                    $this->routingKey = $this->errorRoutingKey;
+                }
+            } else {
+                $attempt = 1;
+            }
             $this->open();
             $this->setupBroker();
             $topic = $this->context->createTopic($this->exchangeName);
@@ -315,13 +344,14 @@ class RabbitMq extends QueueStrategy
             $message->setDeliveryMode(AmqpMessage::DELIVERY_MODE_PERSISTENT);
             $message->setMessageId(uniqid('', true));
             $message->setTimestamp(time());
-            $message->setProperty(self::ATTEMPT, 1);
-            $message->setProperty(self::TTR, $this->config['ttr']);
+            $message->setProperty(self::ATTEMPT, $attempt);
+            $message->setProperty(self::TTR, is_int($ttr) && $ttr > 0 ? $ttr : $this->config['ttr']);
             $message->setRoutingKey($this->routingKey);
             $producer = $this->context->createProducer();
-            if ($this->delayTime) {
-                $message->setProperty(self::DELAY, $this->delayTime);
-                $producer->setDeliveryDelay($this->delayTime * 1000);
+            $delay = is_int($delay) && $delay > 0 ? $delay : $this->delayTime;
+            if ($delay) {
+                $message->setProperty(self::DELAY, $delay);
+                $producer->setDeliveryDelay($delay * 1000);
             }
             if ($priority) {
                 $message->setProperty(self::PRIORITY, $priority);
@@ -351,5 +381,17 @@ class RabbitMq extends QueueStrategy
         $this->context->close();
         $this->context = null;
         $this->setupBrokerDone = false;
+    }
+
+    /**
+     * 初始化errorKey及routingKey参数
+     *
+     * @author xyq
+     */
+    protected function initParams()
+    {
+        $this->routingKey = $this->routingKey ?? $this->queueName . 'Key';
+        $this->errorQueueName = $this->errorQueueName ?? $this->queueName . 'Error';
+        $this->errorRoutingKey = $this->errorRoutingKey ?? $this->queueName . 'ErrorKey';
     }
 }

@@ -5,7 +5,8 @@
   "require": {
     "php": ">7.1.0",
     "enqueue/amqp-lib": "0.10.1",
-    "php-amqplib/php-amqplib": "2.11.1"
+    "php-amqplib/php-amqplib": "2.11.1",
+    "symfony/process": "^4.4"
   },
   "license": "BSD 3-Clause",
   "authors": [
