@@ -270,7 +270,7 @@ class RabbitMq extends QueueStrategy
             if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
                 $this->logDriver->write('queue/queue_consumer.log', ' messageId:' . $message->getMessageId() . ' payload:' . $message->getBody());
             }
-            if (Message::handleMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime)) {
+            if (Message::handleMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime, $this->queueName)) {
                 $consumer->acknowledge($message);
             } else {
                 $consumer->acknowledge($message);

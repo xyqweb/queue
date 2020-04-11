@@ -39,7 +39,7 @@ class Message
     /**
      * @inheritdoc
      */
-    public static function handleMessage($id, $message, $ttr, $attempt, $reconsumeTime = 60)
+    public static function handleMessage($id, $message, $ttr, $attempt, $reconsumeTime = 60, $queueName = '')
     {
         $job = self::$serialize->unSerialize($message);
         if (!($job instanceof JobInterface)) {
@@ -68,7 +68,7 @@ class Message
             $result = false;
         }
         if (false === $result) {
-            self::pushNewMessage($event->id, $message, $event->ttr, $event->attempt, $reconsumeTime);
+            self::pushNewMessage($event->id, $message, $event->ttr, $event->attempt, $reconsumeTime, $queueName);
             echo " execute " . 'fail， body：' . $message . "\n" . $error;
         }
         return $return;
@@ -83,14 +83,15 @@ class Message
      * @param $ttr
      * @param $attempt
      * @param int $reconsumeTime
+     * @param string $queueName
      * @return bool
      */
-    public static function pushNewMessage($id, $message, $ttr, $attempt, $reconsumeTime = 60)
+    public static function pushNewMessage($id, $message, $ttr, $attempt, $reconsumeTime = 60, $queueName = '')
     {
         $ttr = floatval(is_numeric($ttr) ? $ttr : 300);
         ++$attempt;
         // Executes child process
-        $cmd = strtr('php run queue push "id" "ttr" "attempt" "pid" "reconsumeTime"', [
+        $cmd = strtr('php run queue push "id" "ttr" "attempt" "pid" "reconsumeTime" "queueName"', [
             'php'           => PHP_BINARY,
             'yii'           => $_SERVER['SCRIPT_FILENAME'],
             'queue'         => 'queue',
@@ -99,6 +100,7 @@ class Message
             'attempt'       => $attempt,
             'pid'           => getmypid(),
             'reconsumeTime' => $reconsumeTime,
+            'queueName'     => $queueName,
         ]);
         $process = new Process($cmd, null, null, $message, $ttr);
         try {
