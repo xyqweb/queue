@@ -63,13 +63,10 @@ class Message
             $res = $event->job->execute($job);
             ($res === false) ? $result = false : true;
         } catch (\Exception $error) {
-            self::pushNewMessage($event->id, $message, $event->ttr, $event->attempt, $reconsumeTime);
             $result = false;
         } catch (\Throwable $error) {
-            self::pushNewMessage($event->id, $message, $event->ttr, $event->attempt, $reconsumeTime);
             $result = false;
         }
-
         if (false === $result) {
             self::pushNewMessage($event->id, $message, $event->ttr, $event->attempt, $reconsumeTime);
             echo " execute " . 'fail， body：' . $message . "\n" . $error;

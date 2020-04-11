@@ -332,7 +332,8 @@ class RabbitMq extends QueueStrategy
             $tempQueueName = $this->queueName;
             $tempRoutingKey = $this->routingKey;
             if (is_int($attempt)) {
-                if ($attempt >= $this->maxFailNum) {
+                if ($attempt > $this->maxFailNum) {
+                    $this->delayTime = $delay = null;
                     $this->queueName = $this->errorQueueName;
                     $this->routingKey = $this->errorRoutingKey;
                 }
@@ -364,7 +365,7 @@ class RabbitMq extends QueueStrategy
             if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
                 $this->logDriver->write('queue/queue_push.log', ' messageId:' . $messageId . ' queueName:' . $this->queueName . ' payload:' . $payload);
             }
-            if ($attempt >= $this->maxFailNum) {
+            if ($attempt > $this->maxFailNum) {
                 $this->queueName = $tempQueueName;
                 $this->routingKey = $tempRoutingKey;
             }
