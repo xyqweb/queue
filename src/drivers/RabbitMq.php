@@ -329,6 +329,8 @@ class RabbitMq extends QueueStrategy
                 throw new ConfigException("Job must be instance of JobInterface.");
             }
             $payload = $this->serialize->serialize($payload);
+            $tempQueueName = $this->queueName;
+            $tempRoutingKey = $this->routingKey;
             if (is_int($attempt)) {
                 if ($attempt >= $this->maxFailNum) {
                     $this->queueName = $this->errorQueueName;
@@ -361,6 +363,10 @@ class RabbitMq extends QueueStrategy
             $messageId = $message->getMessageId();
             if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
                 $this->logDriver->write('queue/queue_push.log', ' messageId:' . $messageId . ' queueName:' . $this->queueName . ' payload:' . $payload);
+            }
+            if ($attempt >= $this->maxFailNum) {
+                $this->queueName = $tempQueueName;
+                $this->routingKey = $tempRoutingKey;
             }
             $this->delayTime = 0;
             return $messageId;
