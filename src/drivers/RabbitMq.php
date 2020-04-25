@@ -169,6 +169,9 @@ class RabbitMq extends QueueStrategy
         if (isset($config['logDriver']) && is_object($config['logDriver'])) {
             $this->logDriver = $config['logDriver'];
         }
+        if (isset($config['heartbeat']) && is_numeric($config['heartbeat'])) {
+            $this->heartbeat = $config['heartbeat'];
+        }
         $this->config = $config;
         $this->serialize = new Serializer();
     }
