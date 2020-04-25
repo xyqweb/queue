@@ -59,7 +59,7 @@ class RabbitMq extends QueueStrategy
      *
      * @var float|null
      */
-    public $heartbeat = 60;
+    public $heartbeat = 5;
     /**
      * PHP uses one shared connection if set true.
      *
