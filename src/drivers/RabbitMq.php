@@ -59,7 +59,7 @@ class RabbitMq extends QueueStrategy
      *
      * @var float|null
      */
-    public $heartbeat;
+    public $heartbeat = 60;
     /**
      * PHP uses one shared connection if set true.
      *
@@ -194,7 +194,7 @@ class RabbitMq extends QueueStrategy
             'read_timeout'       => $this->readTimeout,
             'write_timeout'      => $this->writeTimeout,
             'connection_timeout' => $this->connectionTimeout,
-            'heartbeat'          => $this->heartbeat,
+            'heartbeat'          => floatval($this->heartbeat),
             'persisted'          => $this->persisted,
             'lazy'               => $this->lazy,
             'qos_global'         => $this->qosGlobal,
