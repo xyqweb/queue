@@ -273,16 +273,34 @@ class RabbitMq extends QueueStrategy
             if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
                 $this->logDriver->write('queue/queue_consumer.log', ' messageId:' . $message->getMessageId() . ' payload:' . $message->getBody());
             }
-            if (Message::handleMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime, $this->queueName)) {
+            if (Message::exec($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime, $this->queueName)) {
                 $consumer->acknowledge($message);
             } else {
                 $consumer->acknowledge($message);
-                Message::pushNewMessage($messageId, $message, $ttr, $attempt, $reconsumeTime);
+                Message::pushNewMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime);
             }
             return true;
         });
 
         $consumerFun->consume();
+    }
+
+    /**
+     * 执行
+     *
+     * @author xyq
+     * @param $id
+     * @param $message
+     * @param $ttr
+     * @param $attempt
+     * @param int $reconsumeTime
+     * @return bool
+     */
+    public function exec($id, $message, $ttr, $attempt, $reconsumeTime = 60)
+    {
+        Message::$serialize = $this->serialize;
+        Message::$logDriver = $this->logDriver;
+        return Message::handleMessage($id, $message, $ttr, $attempt, $reconsumeTime);
     }
 
     /**
