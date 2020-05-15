@@ -97,7 +97,7 @@ class Message
         // Executes child process
         $cmd = strtr('php run queue push "id" "ttr" "attempt" "pid" "reconsumeTime" "queueName"', [
             'php'           => PHP_BINARY,
-            'yii'           => $_SERVER['SCRIPT_FILENAME'],
+            'run'           => $_SERVER['SCRIPT_FILENAME'],
             'queue'         => 'queue',
             'id'            => $id,
             'ttr'           => $ttr,
@@ -144,7 +144,7 @@ class Message
         // Executes child process
         $cmd = strtr('php run queue exec "id" "ttr" "attempt" "pid" "reconsumeTime" "queueName"', [
             'php'           => PHP_BINARY,
-            'yii'           => $_SERVER['SCRIPT_FILENAME'],
+            'run'           => $_SERVER['SCRIPT_FILENAME'],
             'queue'         => self::$queueName,
             'id'            => $id,
             'ttr'           => $ttr,
