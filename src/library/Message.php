@@ -35,10 +35,6 @@ class Message
      * @var
      */
     static $logDriver;
-    /**
-     * @var string listenDriver
-     */
-    static $queueName;
 
     /**
      * @inheritdoc
