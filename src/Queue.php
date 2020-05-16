@@ -117,20 +117,4 @@ class Queue
     {
         self::$driver->listen();
     }
-
-    /**
-     * 执行单个队列
-     *
-     * @author xyq
-     * @param $id
-     * @param $message
-     * @param $ttr
-     * @param $attempt
-     * @param int $reconsumeTime
-     * @return bool
-     */
-    public function exec($id, $message, $ttr, $attempt, $reconsumeTime = 60)
-    {
-        return self::$driver->exec($id, $message, $ttr, $attempt, $reconsumeTime);
-    }
 }
