@@ -277,7 +277,7 @@ class RabbitMq extends QueueStrategy
                 $consumer->acknowledge($message);
             } else {
                 $consumer->acknowledge($message);
-                Message::pushNewMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime);
+                Message::pushNewMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime, $this->queueName);
             }
             return true;
         });
