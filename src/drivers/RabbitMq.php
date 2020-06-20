@@ -256,33 +256,49 @@ class RabbitMq extends QueueStrategy
      */
     public function listen()
     {
-        $this->initParams();
-        $this->open();
-        $this->setupBroker();
+        while (true) {
+            try {
+                $this->initParams();
+                $this->open();
+                $this->setupBroker();
 
-        $queue = $this->context->createQueue($this->queueName);
-        $consumer = $this->context->createConsumer($queue);
-        $consumerFun = $this->context->createSubscriptionConsumer();
-        Message::$serialize = $this->serialize;
-        Message::$logDriver = $this->logDriver;
-        $consumerFun->subscribe($consumer, function (AmqpMessage $message, AmqpConsumer $consumer) {
-            $ttr = $message->getProperty(self::TTR);
-            $attempt = $message->getProperty(self::ATTEMPT, 1);
-            $reconsumeTime = $this->reconsumeTime;
-            $messageId = $message->getMessageId();
-            if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
-                $this->logDriver->write('queue/queue_consumer.log', ' messageId:' . $message->getMessageId() . ' payload:' . $message->getBody());
-            }
-            if (Message::handleMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime, $this->queueName)) {
-                $consumer->acknowledge($message);
-            } else {
-                $consumer->acknowledge($message);
-                Message::pushNewMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime, $this->queueName);
-            }
-            return true;
-        });
+                $queue = $this->context->createQueue($this->queueName);
+                $consumer = $this->context->createConsumer($queue);
+                $consumerFun = $this->context->createSubscriptionConsumer();
+                Message::$serialize = $this->serialize;
+                Message::$logDriver = $this->logDriver;
+                $consumerFun->subscribe($consumer, function (AmqpMessage $message, AmqpConsumer $consumer) {
+                    $ttr = $message->getProperty(self::TTR);
+                    $attempt = $message->getProperty(self::ATTEMPT, 1);
+                    $reconsumeTime = $this->reconsumeTime;
+                    $messageId = $message->getMessageId();
+                    if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
+                        $this->logDriver->write('queue/queue_consumer.log', ' messageId:' . $message->getMessageId() . ' payload:' . $message->getBody());
+                    }
+                    if (Message::handleMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime, $this->queueName)) {
+                        $consumer->acknowledge($message);
+                    } else {
+                        $consumer->acknowledge($message);
+                        Message::pushNewMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime, $this->queueName);
+                    }
+                    return true;
+                });
 
-        $consumerFun->consume();
+                $consumerFun->consume();
+            } catch (\PhpAmqpLib\Exception\AMQPRuntimeException $e) {
+                echo $e->getMessage() . PHP_EOL;
+                $this->close();
+                sleep(1);
+            } catch (\RuntimeException $e) {
+                echo "Runtime exception " . $e->getMessage() . PHP_EOL;
+                $this->close();
+                sleep(1);
+            } catch (\ErrorException $e) {
+                echo "Error exception " . $e->getMessage() . PHP_EOL;
+                $this->close();
+                sleep(1);
+            }
+        }
     }
 
     /**
