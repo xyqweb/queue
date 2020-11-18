@@ -256,9 +256,23 @@ class RabbitMq extends QueueStrategy
      */
     public function listen()
     {
+        $listenQueue = $listenRoutingKey = $listenErrorQueueName = $listenErrorRoutingKey = '';
         while (true) {
             try {
                 $this->initParams();
+                if (empty($listenQueue)) {
+                    $listenQueue = $this->queueName;
+                    $listenRoutingKey = $this->routingKey;
+                    $listenErrorQueueName = $this->errorQueueName;
+                    $listenErrorRoutingKey = $this->errorRoutingKey;
+                } elseif ($listenQueue !== $this->queueName) {
+                    //此处的目的主要是防止当前队列正在监听中时推入其他队列名称导致监听队列名偏移
+                    $this->queueName = $listenQueue;
+                    $this->routingKey = $listenRoutingKey;
+                    $this->errorQueueName = $listenErrorQueueName;
+                    $this->errorRoutingKey = $listenErrorRoutingKey;
+                    $this->setupBrokerDone = false;
+                }
                 $this->open();
                 $this->setupBroker();
 
@@ -270,33 +284,32 @@ class RabbitMq extends QueueStrategy
                 $consumerFun->subscribe($consumer, function (AmqpMessage $message, AmqpConsumer $consumer) {
                     $ttr = $message->getProperty(self::TTR);
                     $attempt = $message->getProperty(self::ATTEMPT, 1);
-                    $reconsumeTime = $this->reconsumeTime;
                     $messageId = $message->getMessageId();
                     if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
                         $this->logDriver->write('queue/queue_consumer.log', ' messageId:' . $message->getMessageId() . ' payload:' . $message->getBody());
                     }
-                    if (Message::handleMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime, $this->queueName)) {
+                    if (Message::handleMessage($messageId, $message->getBody(), $ttr, $attempt)) {
                         $consumer->acknowledge($message);
                     } else {
                         $consumer->acknowledge($message);
-                        Message::pushNewMessage($messageId, $message->getBody(), $ttr, $attempt, $reconsumeTime, $this->queueName);
+                        $this->push($this->serialize->unSerialize($message->getBody()), $ttr, 60, null, $attempt);
                     }
                     return true;
                 });
 
                 $consumerFun->consume();
             } catch (\PhpAmqpLib\Exception\AMQPRuntimeException $e) {
-                echo $e->getMessage() . PHP_EOL;
+                echo "AMQPRuntimeException " . $e->getMessage() . PHP_EOL;
                 $this->close();
                 sleep(1);
-            } catch (\RuntimeException $e) {
-                echo "Runtime exception " . $e->getMessage() . PHP_EOL;
+            } catch (\Exception $e) {
+                echo "Exception " . $e->getMessage() . PHP_EOL;
                 $this->close();
-                sleep(1);
-            } catch (\ErrorException $e) {
-                echo "Error exception " . $e->getMessage() . PHP_EOL;
+                sleep(2);
+            } catch (\Throwable $e) {
+                echo "Throwable Exception " . $e->getMessage() . PHP_EOL;
                 $this->close();
-                sleep(1);
+                sleep(5);
             }
         }
     }
@@ -323,8 +336,13 @@ class RabbitMq extends QueueStrategy
      */
     public function queueName(string $queueName)
     {
+        if ($queueName != $this->queueName) {
+            $this->setupBrokerDone = false;
+        }
         $this->queueName = $queueName;
         $this->routingKey = $queueName . 'Key';
+        $this->errorQueueName = $this->queueName . 'Error';
+        $this->errorRoutingKey = $this->queueName . 'ErrorKey';
         return $this;
     }
 
@@ -351,10 +369,12 @@ class RabbitMq extends QueueStrategy
             $tempQueueName = $this->queueName;
             $tempRoutingKey = $this->routingKey;
             if (is_int($attempt)) {
+                $attempt++;
                 if ($attempt > $this->maxFailNum) {
                     $this->delayTime = $delay = null;
                     $this->queueName = $this->errorQueueName;
                     $this->routingKey = $this->errorRoutingKey;
+                    $this->setupBrokerDone = false;
                 }
             } else {
                 $attempt = 1;
@@ -384,9 +404,10 @@ class RabbitMq extends QueueStrategy
             if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
                 $this->logDriver->write('queue/queue_push.log', ' messageId:' . $messageId . ' queueName:' . $this->queueName . ' payload:' . $payload);
             }
-            if ($attempt > $this->maxFailNum) {
+            if ($tempQueueName !== $this->queueName) {
                 $this->queueName = $tempQueueName;
                 $this->routingKey = $tempRoutingKey;
+                $this->setupBrokerDone = false;
             }
             $this->delayTime = 0;
             return $messageId;

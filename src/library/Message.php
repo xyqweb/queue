@@ -11,9 +11,6 @@ namespace xyqWeb\queue\library;
 
 
 use InvalidArgumentException;
-use Symfony\Component\Process\Exception\ProcessFailedException;
-use Symfony\Component\Process\Exception\RuntimeException as ProcessRuntimeException;
-use Symfony\Component\Process\Process;
 use xyqWeb\queue\JobInterface;
 
 class Message
@@ -39,7 +36,7 @@ class Message
     /**
      * @inheritdoc
      */
-    public static function handleMessage($id, $message, $ttr, $attempt, $reconsumeTime = 60, $queueName = '')
+    public static function handleMessage($id, $message, $ttr, $attempt)
     {
         $job = self::$serialize->unSerialize($message);
         if (!($job instanceof JobInterface)) {
@@ -54,8 +51,8 @@ class Message
         if ($event->handled) {
             return true;
         }
+        $result = true;
         $error = '';
-        $return = $result = true;
         try {
             if (method_exists($event->job, 'setMessageId')) {
                 $event->job->setMessageId($id);
@@ -67,53 +64,15 @@ class Message
         } catch (\Throwable $error) {
             $result = false;
         }
-        if (false === $result) {
-            self::pushNewMessage($event->id, $message, $event->ttr, $event->attempt, $reconsumeTime, $queueName);
-            echo " execute " . 'fail， body：' . $message . "\n" . $error;
-        }
-        return $return;
-    }
-
-    /**
-     * 用进程的方式推新的队列
-     *
-     * @author xyq
-     * @param $id
-     * @param $message
-     * @param $ttr
-     * @param $attempt
-     * @param int $reconsumeTime
-     * @param string $queueName
-     * @return bool
-     */
-    public static function pushNewMessage($id, $message, $ttr, $attempt, $reconsumeTime = 60, $queueName = '')
-    {
-        $ttr = floatval(is_numeric($ttr) ? $ttr : 300);
-        ++$attempt;
-        // Executes child process
-        $cmd = strtr('php run queue push "id" "ttr" "attempt" "pid" "reconsumeTime" "queueName"', [
-            'php'           => PHP_BINARY,
-            'run'           => $_SERVER['SCRIPT_FILENAME'],
-            'queue'         => 'queue',
-            'id'            => $id,
-            'ttr'           => $ttr,
-            'attempt'       => $attempt,
-            'pid'           => getmypid(),
-            'reconsumeTime' => $reconsumeTime,
-            'queueName'     => $queueName,
-        ]);
-        $process = new Process($cmd, null, null, $message, $ttr);
-        try {
-            $result = $process->run();
-            if (!in_array($result, [self::EXEC_DONE, self::EXEC_RETRY])) {
-                throw new ProcessFailedException($process);
+        if (is_object(self::$logDriver) && method_exists(self::$logDriver, 'write')) {
+            $errorMessage = 'messageId:' . $id . ' payload:' . $message . ' execute fail。';
+            if (is_object($error)) {
+                $errorMessage .= 'errorMsg:' . $error->getMessage() . ',errorFile:' . $error->getFile() . ',errorLine:' . $error->getLine() . ',trace:' . $error->getTraceAsString();
+            } else {
+                $errorMessage .= 'errorMsg:false';
             }
-            return $result === self::EXEC_DONE;
-        } catch (ProcessRuntimeException $error) {
-            if (is_object(self::$logDriver) && method_exists(self::$logDriver, 'write')) {
-                self::$logDriver->write('queue/push_error_queue.log', ' messageId:' . $id . ' payload:' . $message);
-            }
-            return false;
+            self::$logDriver->write('queue/queue_consumer_error.log', $errorMessage);
         }
+        return $result;
     }
 }
