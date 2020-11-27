@@ -338,6 +338,7 @@ class RabbitMq extends QueueStrategy
     {
         if ($queueName != $this->queueName) {
             $this->setupBrokerDone = false;
+            $this->delay(0);
         }
         $this->queueName = $queueName;
         $this->routingKey = $queueName . 'Key';

@@ -64,14 +64,16 @@ class Message
         } catch (\Throwable $error) {
             $result = false;
         }
-        if (is_object(self::$logDriver) && method_exists(self::$logDriver, 'write')) {
-            $errorMessage = 'messageId:' . $id . ' payload:' . $message . ' execute fail。';
-            if (is_object($error)) {
-                $errorMessage .= 'errorMsg:' . $error->getMessage() . ',errorFile:' . $error->getFile() . ',errorLine:' . $error->getLine() . ',trace:' . $error->getTraceAsString();
-            } else {
-                $errorMessage .= 'errorMsg:false';
+        if (!$result) {
+            if (is_object(self::$logDriver) && method_exists(self::$logDriver, 'write')) {
+                $errorMessage = 'messageId:' . $id . ' payload:' . $message . ' execute fail。';
+                if (is_object($error)) {
+                    $errorMessage .= 'errorMsg:' . $error->getMessage() . ',errorFile:' . $error->getFile() . ',errorLine:' . $error->getLine() . ',trace:' . $error->getTraceAsString();
+                } else {
+                    $errorMessage .= 'errorMsg:' . $error;
+                }
+                self::$logDriver->write('queue/queue_consumer_error.log', $errorMessage);
             }
-            self::$logDriver->write('queue/queue_consumer_error.log', $errorMessage);
         }
         return $result;
     }
