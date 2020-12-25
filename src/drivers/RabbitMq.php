@@ -98,6 +98,12 @@ class RabbitMq extends QueueStrategy
      */
     protected $context;
     /**
+     * Amqp interop context.
+     *
+     * @var AmqpContext
+     */
+    protected $pushContext;
+    /**
      * 消费失败后，间隔60秒后才可再次被消费
      * @var integer
      */
@@ -109,6 +115,13 @@ class RabbitMq extends QueueStrategy
      * @var bool
      */
     protected $setupBrokerDone = false;
+    /**
+     * The property tells whether the setupBroker method was called or not.
+     * Having it we can do broker setup only once per process.
+     *
+     * @var bool
+     */
+    protected $pushSetupBrokerDone = false;
     /**
      * 错误mq队列
      * @var string
@@ -180,11 +193,18 @@ class RabbitMq extends QueueStrategy
      * 打开RabbitMQ的连接
      *
      * @author xyq
+     * @param string $type
      */
-    private function open()
+    private function open($type = 'consumer')
     {
-        if ($this->context) {
-            return;
+        if ('consumer' == $type) {
+            if ($this->context) {
+                return;
+            }
+        } else {
+            if ($this->pushContext) {
+                return;
+            }
         }
         $connectionClass = AmqpLibConnectionFactory::class;
 
@@ -210,11 +230,16 @@ class RabbitMq extends QueueStrategy
 
         /** @var AmqpLibConnectionFactory $factory */
         $factory = new $connectionClass($config);
-
-        $this->context = $factory->createContext();
-
-        if ($this->context instanceof DelayStrategyAware) {
-            $this->context->setDelayStrategy(new RabbitMqDlxDelayStrategy());
+        if ('consumer' == $type) {
+            $this->context = $factory->createContext();
+            if ($this->context instanceof DelayStrategyAware) {
+                $this->context->setDelayStrategy(new RabbitMqDlxDelayStrategy());
+            }
+        } else {
+            $this->pushContext = $factory->createContext();
+            if ($this->pushContext instanceof DelayStrategyAware) {
+                $this->pushContext->setDelayStrategy(new RabbitMqDlxDelayStrategy());
+            }
         }
     }
 
@@ -222,37 +247,59 @@ class RabbitMq extends QueueStrategy
      * 设置broker
      *
      * @author xyq
+     * @param string $type
      * @throws \Interop\Queue\Exception\Exception
      */
-    protected function setupBroker()
+    protected function setupBroker($type = 'consumer')
     {
-        if ($this->setupBrokerDone) {
-            return;
+        if ('consumer' == $type) {
+            if ($this->setupBrokerDone) {
+                return;
+            }
+
+            $queue = $this->context->createQueue($this->queueName);
+            $queue->addFlag(AmqpQueue::FLAG_DURABLE);
+            $queueArguments = ['x-max-priority' => $this->maxPriority];
+            if (isset($this->config['queueArguments']) && is_array($this->config['queueArguments']) && !empty($this->config['queueArguments'])) {
+                $queueArguments = array_merge($queueArguments, $this->config['queueArguments']);
+            }
+            $queue->setArguments($queueArguments);
+            $this->context->declareQueue($queue);
+
+            $topic = $this->context->createTopic($this->exchangeName);
+            $topic->setType(AmqpTopic::TYPE_DIRECT);
+            $topic->addFlag(AmqpTopic::FLAG_DURABLE);
+            $this->context->declareTopic($topic);
+
+            $this->context->bind(new AmqpBind($queue, $topic, $this->routingKey));
+            $this->setupBrokerDone = true;
+        } else {
+            if ($this->pushSetupBrokerDone) {
+                return;
+            }
+            $queue = $this->pushContext->createQueue($this->queueName);
+            $queue->addFlag(AmqpQueue::FLAG_DURABLE);
+            $queueArguments = ['x-max-priority' => $this->maxPriority];
+            if (isset($this->config['queueArguments']) && is_array($this->config['queueArguments']) && !empty($this->config['queueArguments'])) {
+                $queueArguments = array_merge($queueArguments, $this->config['queueArguments']);
+            }
+            $queue->setArguments($queueArguments);
+            $this->pushContext->declareQueue($queue);
+
+            $topic = $this->pushContext->createTopic($this->exchangeName);
+            $topic->setType(AmqpTopic::TYPE_DIRECT);
+            $topic->addFlag(AmqpTopic::FLAG_DURABLE);
+            $this->pushContext->declareTopic($topic);
+
+            $this->pushContext->bind(new AmqpBind($queue, $topic, $this->routingKey));
+            $this->pushSetupBrokerDone = true;
         }
-
-        $queue = $this->context->createQueue($this->queueName);
-        $queue->addFlag(AmqpQueue::FLAG_DURABLE);
-        $queueArguments = ['x-max-priority' => $this->maxPriority];
-        if (isset($this->config['queueArguments']) && is_array($this->config['queueArguments']) && !empty($this->config['queueArguments'])) {
-            $queueArguments = array_merge($queueArguments, $this->config['queueArguments']);
-        }
-        $queue->setArguments($queueArguments);
-        $this->context->declareQueue($queue);
-
-        $topic = $this->context->createTopic($this->exchangeName);
-        $topic->setType(AmqpTopic::TYPE_DIRECT);
-        $topic->addFlag(AmqpTopic::FLAG_DURABLE);
-        $this->context->declareTopic($topic);
-
-        $this->context->bind(new AmqpBind($queue, $topic, $this->routingKey));
-        $this->setupBrokerDone = true;
     }
 
     /**
      * 监听队列
      *
      * @author xyq
-     * @throws \Interop\Queue\Exception\Exception
      */
     public function listen()
     {
@@ -273,8 +320,8 @@ class RabbitMq extends QueueStrategy
                     $this->errorRoutingKey = $listenErrorRoutingKey;
                     $this->setupBrokerDone = false;
                 }
-                $this->open();
-                $this->setupBroker();
+                $this->open('consumer');
+                $this->setupBroker('consumer');
 
                 $queue = $this->context->createQueue($this->queueName);
                 $consumer = $this->context->createConsumer($queue);
@@ -302,6 +349,10 @@ class RabbitMq extends QueueStrategy
                 echo "AMQPRuntimeException " . $e->getMessage() . PHP_EOL;
                 $this->close();
                 sleep(1);
+            } catch (\TypeError $e) {
+                echo "Exception " . $e->getMessage() . PHP_EOL;
+                $this->close();
+                sleep(2);
             } catch (\Exception $e) {
                 echo "Exception " . $e->getMessage() . PHP_EOL;
                 $this->close();
@@ -337,7 +388,7 @@ class RabbitMq extends QueueStrategy
     public function queueName(string $queueName)
     {
         if ($queueName != $this->queueName) {
-            $this->setupBrokerDone = false;
+            $this->pushSetupBrokerDone = false;
             $this->delay(0);
         }
         $this->queueName = $queueName;
@@ -362,73 +413,118 @@ class RabbitMq extends QueueStrategy
     public function push($payload, $ttr = null, $delay = null, $priority = null, $attempt = null)
     {
         $this->initParams();
-        try {
-            if (!($payload instanceof JobInterface)) {
-                throw new ConfigException("Job must be instance of JobInterface.");
+        $time = 0;
+        $messageId = $e = '';
+        do {
+            try {
+                $messageId = $this->pushMessage($payload, $ttr, $delay, $priority, $attempt);
+            } catch (\TypeError $e) {
+            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
             }
-            $payload = $this->serialize->serialize($payload);
-            $tempQueueName = $this->queueName;
-            $tempRoutingKey = $this->routingKey;
-            if (is_int($attempt)) {
-                $attempt++;
-                if ($attempt > $this->maxFailNum) {
-                    $this->delayTime = $delay = null;
-                    $this->queueName = $this->errorQueueName;
-                    $this->routingKey = $this->errorRoutingKey;
-                    $this->setupBrokerDone = false;
-                }
-            } else {
-                $attempt = 1;
+            if (!empty($e)) {
+                $this->closePush();
+                $time++;
             }
-            $this->open();
-            $this->setupBroker();
-            $topic = $this->context->createTopic($this->exchangeName);
-            $message = $this->context->createMessage($payload);
-            $message->setDeliveryMode(AmqpMessage::DELIVERY_MODE_PERSISTENT);
-            $message->setMessageId(uniqid('', true));
-            $message->setTimestamp(time());
-            $message->setProperty(self::ATTEMPT, $attempt);
-            $message->setProperty(self::TTR, is_int($ttr) && $ttr > 0 ? $ttr : $this->config['ttr']);
-            $message->setRoutingKey($this->routingKey);
-            $producer = $this->context->createProducer();
-            $delay = is_int($delay) && $delay > 0 ? $delay : $this->delayTime;
-            if ($delay) {
-                $message->setProperty(self::DELAY, $delay);
-                $producer->setDeliveryDelay($delay * 1000);
-            }
-            if ($priority) {
-                $message->setProperty(self::PRIORITY, $priority);
-                $producer->setPriority($priority);
-            }
-            $producer->send($topic, $message);
-            $messageId = $message->getMessageId();
-            if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
-                $this->logDriver->write('queue/queue_push.log', ' messageId:' . $messageId . ' queueName:' . $this->queueName . ' payload:' . $payload);
-            }
-            if ($tempQueueName !== $this->queueName) {
-                $this->queueName = $tempQueueName;
-                $this->routingKey = $tempRoutingKey;
+        } while ($time === 1);
+        if (empty($messageId)) {
+            throw new \Exception('队列推送失败：' . $e->getMessage());
+        }
+        return $messageId;
+    }
+
+    /**
+     * 执行消息入队
+     *
+     * @author xyq
+     * @param $payload
+     * @param null $ttr
+     * @param null $delay
+     * @param null $priority
+     * @param null $attempt
+     * @return string|null
+     * @throws ConfigException
+     * @throws \Interop\Queue\Exception
+     * @throws \Interop\Queue\Exception\DeliveryDelayNotSupportedException
+     * @throws \Interop\Queue\Exception\Exception
+     * @throws \Interop\Queue\Exception\InvalidDestinationException
+     * @throws \Interop\Queue\Exception\InvalidMessageException
+     * @throws \Interop\Queue\Exception\PriorityNotSupportedException
+     */
+    private function pushMessage($payload, $ttr = null, $delay = null, $priority = null, $attempt = null)
+    {
+        if (!($payload instanceof JobInterface)) {
+            throw new ConfigException("Job must be instance of JobInterface.");
+        }
+        $payload = $this->serialize->serialize($payload);
+        $tempQueueName = $this->queueName;
+        $tempRoutingKey = $this->routingKey;
+        if (is_int($attempt)) {
+            $attempt++;
+            if ($attempt > $this->maxFailNum) {
+                $this->delayTime = $delay = null;
+                $this->queueName = $this->errorQueueName;
+                $this->routingKey = $this->errorRoutingKey;
                 $this->setupBrokerDone = false;
             }
-            $this->delayTime = 0;
-            return $messageId;
-        } catch (\Throwable $e) {
-            throw new \Exception('队列推送失败:' . $e->getMessage());
+        } else {
+            $attempt = 1;
         }
+        $this->open('push');
+        $this->setupBroker('push');
+        $topic = $this->pushContext->createTopic($this->exchangeName);
+        $message = $this->pushContext->createMessage($payload);
+        $message->setDeliveryMode(AmqpMessage::DELIVERY_MODE_PERSISTENT);
+        $message->setMessageId(uniqid('', true));
+        $message->setTimestamp(time());
+        $message->setProperty(self::ATTEMPT, $attempt);
+        $message->setProperty(self::TTR, is_int($ttr) && $ttr > 0 ? $ttr : $this->config['ttr']);
+        $message->setRoutingKey($this->routingKey);
+        $producer = $this->pushContext->createProducer();
+        $delay = is_int($delay) && $delay > 0 ? $delay : $this->delayTime;
+        if ($delay) {
+            $message->setProperty(self::DELAY, $delay);
+            $producer->setDeliveryDelay($delay * 1000);
+        }
+        if ($priority) {
+            $message->setProperty(self::PRIORITY, $priority);
+            $producer->setPriority($priority);
+        }
+        $producer->send($topic, $message);
+        $messageId = $message->getMessageId();
+        if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
+            $this->logDriver->write('queue/queue_push.log', ' messageId:' . $messageId . ' queueName:' . $this->queueName . ' payload:' . $payload);
+        }
+        if ($tempQueueName !== $this->queueName) {
+            $this->queueName = $tempQueueName;
+            $this->routingKey = $tempRoutingKey;
+            $this->setupBrokerDone = false;
+        }
+        $this->delayTime = 0;
+        return $messageId;
     }
 
     /**
      * Closes connection and channel.
      */
+    public function closePush()
+    {
+        if (!$this->pushContext) {
+            return;
+        }
+        $this->pushContext->close();
+        $this->pushContext = null;
+        $this->pushSetupBrokerDone = false;
+    }
+
     public function close()
     {
         if (!$this->context) {
             return;
         }
-
         $this->context->close();
         $this->context = null;
-        $this->setupBrokerDone = false;
+        $this->context = false;
     }
 
     /**
