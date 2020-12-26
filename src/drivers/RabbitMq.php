@@ -512,7 +512,12 @@ class RabbitMq extends QueueStrategy
         if (!$this->pushContext) {
             return;
         }
-        $this->pushContext->close();
+        try {
+            $this->pushContext->close();
+        } catch (\TypeError $e) {
+        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+        }
         $this->pushContext = null;
         $this->pushSetupBrokerDone = false;
     }
@@ -522,7 +527,12 @@ class RabbitMq extends QueueStrategy
         if (!$this->context) {
             return;
         }
-        $this->context->close();
+        try {
+            $this->context->close();
+        } catch (\TypeError $e) {
+        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+        }
         $this->context = null;
         $this->context = false;
     }
