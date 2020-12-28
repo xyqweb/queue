@@ -36,7 +36,7 @@ class Message
     /**
      * @inheritdoc
      */
-    public static function handleMessage($id, $message, $ttr, $attempt)
+    public static function handleMessage($id, $message, $ttr, $attempt, $context)
     {
         $job = self::$serialize->unSerialize($message);
         if (!($job instanceof JobInterface)) {
@@ -56,6 +56,9 @@ class Message
         try {
             if (method_exists($event->job, 'setMessageId')) {
                 $event->job->setMessageId($id);
+            }
+            if (method_exists($event->job, 'setContext')) {
+                $event->job->setContext($context);
             }
             $res = $event->job->execute($job);
             ($res === false) ? $result = false : true;
