@@ -87,15 +87,12 @@ class Queue
      * @author xyq
      * @param $payload
      * @param null $ttr
-     * @param null $delay
-     * @param null $priority
-     * @param null $attempt
      * @return string
      * @throws \Exception
      */
-    public function push($payload, $ttr = null, $delay = null, $priority = null, $attempt = null) : string
+    public function push($payload, $ttr = null) : string
     {
-        return self::$driver->push($payload, $ttr, $delay, $priority, $attempt);
+        return self::$driver->push($payload, $ttr);
     }
 
     /**
@@ -105,7 +102,7 @@ class Queue
      */
     public function close()
     {
-        self::$driver->close();
+        self::$driver->closePush();
     }
 
     /**
