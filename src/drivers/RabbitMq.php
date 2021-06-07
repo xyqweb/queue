@@ -399,6 +399,7 @@ class RabbitMq extends QueueStrategy
         do {
             try {
                 $messageId = $this->pushMessage($payload, $ttr);
+                $time = 0;
             } catch (\Throwable $e) {
                 $this->closePush();
                 $time++;
