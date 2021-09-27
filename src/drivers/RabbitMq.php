@@ -166,9 +166,13 @@ class RabbitMq extends QueueStrategy
      */
     protected $logDriver;
     /**
-     * @var object 日志组件
+     * @var object 序列化组件
      */
     protected $serialize;
+    /**
+     * @var int 重试次数
+     */
+    protected $retry_times = 1;
 
     /**
      * RabbitMq constructor.
@@ -185,6 +189,9 @@ class RabbitMq extends QueueStrategy
         }
         if (isset($config['heartbeat']) && is_numeric($config['heartbeat'])) {
             $this->heartbeat = $config['heartbeat'];
+        }
+        if (isset($config['retry_times']) && is_int($config['retry_times'])) {
+            $this->retry_times = $config['retry_times'];
         }
         $this->config = $config;
         $this->serialize = new Serializer();
@@ -404,7 +411,7 @@ class RabbitMq extends QueueStrategy
                 $this->closePush();
                 $time++;
             }
-        } while ($time === 1);
+        } while ($this->retry_times > 0 && $time > 0 && $time <= $this->retry_times);
         if (empty($messageId)) {
             throw new \Exception('队列推送失败：' . $e->getMessage());
         }
