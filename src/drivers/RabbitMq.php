@@ -401,17 +401,17 @@ class RabbitMq extends QueueStrategy
      */
     public function push($payload, $ttr = null)
     {
-        $time = 0;
+        $times = 0;
         $messageId = $e = '';
         do {
             try {
                 $messageId = $this->pushMessage($payload, $ttr);
-                $time = 0;
+                $times = 0;
             } catch (\Throwable $e) {
                 $this->closePush();
-                $time++;
+                $times++;
             }
-        } while ($this->retry_times > 0 && $time > 0 && $time <= $this->retry_times);
+        } while ($times > 0 && $this->retry_times > 0 && $times <= $this->retry_times);
         if (empty($messageId)) {
             throw new \Exception('队列推送失败：' . $e->getMessage());
         }
