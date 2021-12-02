@@ -402,18 +402,20 @@ class RabbitMq extends QueueStrategy
     public function push($payload, $ttr = null)
     {
         $time = 0;
+        $isContinue = true;
         $messageId = $e = '';
         do {
+            $time++;
             try {
-                $messageId = $this->pushMessage($payload, $ttr);
-                $time = 0;
+                $messageId = $this->pushMessage($payload, $ttr, $time);
+                $isContinue = false;
             } catch (\Throwable $e) {
                 $this->closePush();
-                $time++;
             }
-        } while ($this->retry_times > 0 && $time > 0 && $time <= $this->retry_times);
+            $time >= 3 && $isContinue = false;
+        } while ($isContinue);
         if (empty($messageId)) {
-            throw new \Exception('队列推送失败：' . $e->getMessage());
+            throw new \Exception("队列推送失败，重试{$time}次:" . $e->getMessage());
         }
         return $messageId;
     }
@@ -424,10 +426,11 @@ class RabbitMq extends QueueStrategy
      * @author xyq
      * @param $payload
      * @param null $ttr
+     * @param int $retry_time
      * @return string|null
      * @throws \Throwable
      */
-    private function pushMessage($payload, $ttr = null)
+    private function pushMessage($payload, $ttr = null, $retry_time = 1)
     {
         if (!($payload instanceof JobInterface)) {
             throw new ConfigException("Job must be instance of JobInterface.");
@@ -456,7 +459,7 @@ class RabbitMq extends QueueStrategy
         $producer->send($topic, $message);
         $messageId = $message->getMessageId();
         if (is_object($this->logDriver) && method_exists($this->logDriver, 'write')) {
-            $this->logDriver->write('queue/queue_push.log', ' messageId:' . $messageId . ' queueName:' . $this->queueName . ' payload:' . $payload);
+            $this->logDriver->write('queue/queue_push.log', 'messageId:' . $messageId . ' queueName:' . $this->queueName . ' payload:' . $payload . ' send_times:' . $retry_time);
         }
         $this->delayTime = 0;
         return $messageId;

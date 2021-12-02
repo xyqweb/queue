@@ -27,6 +27,7 @@ class Serializer extends QueueObject
 
     /**
      * @inheritdoc
+     * @throws ConfigException
      */
     public function serialize($job)
     {
@@ -78,6 +79,7 @@ class Serializer extends QueueObject
     /**
      * @param array $data
      * @return mixed
+     * @throws ConfigException
      */
     protected function fromArray($data)
     {

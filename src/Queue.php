@@ -36,7 +36,7 @@ class Queue
         if (!in_array($strategy, ['rabbitMq'])) {
             throw new ConfigException('queue strategy error,only accept rabbitMq');
         }
-        $class = "\\xyqWeb\\queue\\drivers\\" . ucfirst($strategy);
+        $class = '\xyqWeb\queue\drivers\\' . ucfirst($strategy);
         self::$driver = new $class($config);
     }
 
@@ -103,6 +103,7 @@ class Queue
     public function close()
     {
         self::$driver->closePush();
+        self::$driver->close();
     }
 
     /**
